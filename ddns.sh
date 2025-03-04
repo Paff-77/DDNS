@@ -46,7 +46,7 @@ fi
 # 安装目录
 INSTALL_DIR="/etc/ddns"
 SERVICE_NAME="ddns.service"
-
+TIMER_NAME="ddns.timer"
 # 创建安装目录
 mkdir -p "$INSTALL_DIR"
 
@@ -54,6 +54,7 @@ mkdir -p "$INSTALL_DIR"
 read -p "请输入你的Cloudflare API令牌: " CF_API_TOKEN
 read -p "请输入你的Zone ID: " CF_ZONE_ID
 read -p "请输入你要更新的二级域名 (例如：subdomain.yourdomain.com): " CF_SUBDOMAIN
+read -p "请输入检测间隔（s）: " UPDATE_TIME
 
 # 询问IP版本选择
 echo "请选择DDNS更新模式："
@@ -67,6 +68,7 @@ CF_API_TOKEN=$CF_API_TOKEN
 CF_ZONE_ID=$CF_ZONE_ID
 CF_SUBDOMAIN=$CF_SUBDOMAIN
 IP_MODE=$IP_MODE
+UPDATE_TIME=$UPDATE_TIME
 EOF
 
 # 立即解析当前IP地址并更新DNS记录
@@ -208,11 +210,24 @@ Restart=on-failure
 WantedBy=multi-user.target
 EOF
 
+cat << EOF > "/etc/systemd/system/$TIMER_NAME"
+[Unit]
+Description=DDNS Timer
+
+[Timer]
+OnUnitActiveSec=$UPDATE_TIME
+OnBootSec=$UPDATE_TIME
+
+[Install]
+WantedBy=timers.target
+EOF
+
 # 重新加载systemd守护进程
 systemctl daemon-reload
 
 # 启用并启动服务
 systemctl enable $SERVICE_NAME
 systemctl start $SERVICE_NAME
-
+systemctl enable $TIMER_NAME
+systemctl start $TIMER_NAME
 echo "DDNS服务已安装并启动。"
