@@ -1,5 +1,35 @@
 #!/bin/bash
 
+# 获取DNS记录ID
+get_dns_record_id() {
+    local record_type=$1
+    curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?type=${record_type}&name=${CF_SUBDOMAIN}" \
+        -H "Authorization: Bearer ${CF_API_TOKEN}" \
+        -H "Content-Type: application/json" | jq -r '.result[0].id'
+}
+
+# 更新DNS记录
+update_dns_record() {
+    local ip=$1
+    local record_type=$2
+    local record_id=$(get_dns_record_id "$record_type")
+    
+    if [ -z "$record_id" ]; then
+        echo "无法获取${record_type}记录ID，尝试创建新记录"
+        # 创建新记录
+        curl -s -X POST "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "{\"type\":\"${record_type}\",\"name\":\"${CF_SUBDOMAIN}\",\"content\":\"${ip}\",\"ttl\":1,\"proxied\":false}" | jq
+    else
+        # 更新现有记录
+        curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records/${record_id}" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "{\"type\":\"${record_type}\",\"name\":\"${CF_SUBDOMAIN}\",\"content\":\"${ip}\",\"ttl\":1,\"proxied\":false}" | jq
+    fi
+}
+
 # 检查并安装 jq
 if ! command -v jq &> /dev/null; then
     echo "jq 未安装，正在安装..."
@@ -38,36 +68,6 @@ CF_ZONE_ID=$CF_ZONE_ID
 CF_SUBDOMAIN=$CF_SUBDOMAIN
 IP_MODE=$IP_MODE
 EOF
-
-# 获取DNS记录ID
-get_dns_record_id() {
-    local record_type=$1
-    curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?type=${record_type}&name=${CF_SUBDOMAIN}" \
-        -H "Authorization: Bearer ${CF_API_TOKEN}" \
-        -H "Content-Type: application/json" | jq -r '.result[0].id'
-}
-
-# 更新DNS记录
-update_dns_record() {
-    local ip=$1
-    local record_type=$2
-    local record_id=$(get_dns_record_id "$record_type")
-    
-    if [ -z "$record_id" ]; then
-        echo "无法获取${record_type}记录ID，尝试创建新记录"
-        # 创建新记录
-        curl -s -X POST "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records" \
-            -H "Authorization: Bearer ${CF_API_TOKEN}" \
-            -H "Content-Type: application/json" \
-            --data "{\"type\":\"${record_type}\",\"name\":\"${CF_SUBDOMAIN}\",\"content\":\"${ip}\",\"ttl\":1,\"proxied\":false}" | jq
-    else
-        # 更新现有记录
-        curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records/${record_id}" \
-            -H "Authorization: Bearer ${CF_API_TOKEN}" \
-            -H "Content-Type: application/json" \
-            --data "{\"type\":\"${record_type}\",\"name\":\"${CF_SUBDOMAIN}\",\"content\":\"${ip}\",\"ttl\":1,\"proxied\":false}" | jq
-    fi
-}
 
 # 立即解析当前IP地址并更新DNS记录
 if [ "$IP_MODE" = "1" ]; then
