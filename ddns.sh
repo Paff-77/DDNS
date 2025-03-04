@@ -1,5 +1,18 @@
 #!/bin/bash
 
+# 检查并安装 jq
+if ! command -v jq &> /dev/null; then
+    echo "jq 未安装，正在安装..."
+    if [ -x "$(command -v yum)" ]; then
+        sudo yum install jq -y
+    elif [ -x "$(command -v apt-get)" ]; then
+        sudo apt-get install jq -y
+    else
+        echo "无法自动安装 jq，请手动安装。"
+        exit 1
+    fi
+fi
+
 # 安装目录
 INSTALL_DIR="/etc/ddns"
 SERVICE_NAME="ddns.service"
@@ -25,6 +38,14 @@ CF_ZONE_ID=$CF_ZONE_ID
 CF_SUBDOMAIN=$CF_SUBDOMAIN
 IP_MODE=$IP_MODE
 EOF
+
+# 获取DNS记录ID
+get_dns_record_id() {
+    local record_type=$1
+    curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?type=${record_type}&name=${CF_SUBDOMAIN}" \
+        -H "Authorization: Bearer ${CF_API_TOKEN}" \
+        -H "Content-Type: application/json" | jq -r '.result[0].id'
+}
 
 # 更新DNS记录
 update_dns_record() {
@@ -105,14 +126,6 @@ get_current_ipv6() {
         ip=$(curl -s -6 ip.sb)
     fi
     echo "$ip"
-}
-
-# 获取DNS记录ID
-get_dns_record_id() {
-    local record_type=$1
-    curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?type=${record_type}&name=${CF_SUBDOMAIN}" \
-        -H "Authorization: Bearer ${CF_API_TOKEN}" \
-        -H "Content-Type: application/json" | jq -r '.result[0].id'
 }
 
 # 记录当前IP
