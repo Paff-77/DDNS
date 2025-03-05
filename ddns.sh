@@ -46,7 +46,7 @@ fi
 # 安装目录
 INSTALL_DIR="/etc/ddns"
 SERVICE_NAME="ddns.service"
-TIMER_NAME="ddns.timer"
+
 # 创建安装目录
 mkdir -p "$INSTALL_DIR"
 
@@ -54,7 +54,6 @@ mkdir -p "$INSTALL_DIR"
 read -p "请输入你的Cloudflare API令牌: " CF_API_TOKEN
 read -p "请输入你的Zone ID: " CF_ZONE_ID
 read -p "请输入你要更新的二级域名 (例如：subdomain.yourdomain.com): " CF_SUBDOMAIN
-read -p "请输入检测间隔（s）: " UPDATE_TIME
 
 # 询问IP版本选择
 echo "请选择DDNS更新模式："
@@ -68,7 +67,6 @@ CF_API_TOKEN=$CF_API_TOKEN
 CF_ZONE_ID=$CF_ZONE_ID
 CF_SUBDOMAIN=$CF_SUBDOMAIN
 IP_MODE=$IP_MODE
-UPDATE_TIME=$UPDATE_TIME
 EOF
 
 # 立即解析当前IP地址并更新DNS记录
@@ -107,6 +105,36 @@ source /etc/ddns/ddns.env
 # 文件路径配置
 IPV4_LOG_FILE="/etc/ddns/ipv4.txt"
 IPV6_LOG_FILE="/etc/ddns/ipv6.txt"
+
+# 获取DNS记录ID
+get_dns_record_id() {
+    local record_type=$1
+    curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?type=${record_type}&name=${CF_SUBDOMAIN}" \
+        -H "Authorization: Bearer ${CF_API_TOKEN}" \
+        -H "Content-Type: application/json" | jq -r '.result[0].id'
+}
+
+# 更新DNS记录
+update_dns_record() {
+    local ip=$1
+    local record_type=$2
+    local record_id=$(get_dns_record_id "$record_type")
+    
+    if [ -z "$record_id" ]; then
+        echo "无法获取${record_type}记录ID，尝试创建新记录"
+        # 创建新记录
+        curl -s -X POST "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "{\"type\":\"${record_type}\",\"name\":\"${CF_SUBDOMAIN}\",\"content\":\"${ip}\",\"ttl\":1,\"proxied\":false}" | jq
+    else
+        # 更新现有记录
+        curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records/${record_id}" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "{\"type\":\"${record_type}\",\"name\":\"${CF_SUBDOMAIN}\",\"content\":\"${ip}\",\"ttl\":1,\"proxied\":false}" | jq
+    fi
+}
 
 # 获取当前IPv4地址
 get_current_ipv4() {
@@ -210,24 +238,11 @@ Restart=on-failure
 WantedBy=multi-user.target
 EOF
 
-cat << EOF > "/etc/systemd/system/$TIMER_NAME"
-[Unit]
-Description=DDNS Timer
-
-[Timer]
-OnUnitActiveSec=$UPDATE_TIME
-OnBootSec=$UPDATE_TIME
-
-[Install]
-WantedBy=timers.target
-EOF
-
 # 重新加载systemd守护进程
 systemctl daemon-reload
 
 # 启用并启动服务
 systemctl enable $SERVICE_NAME
 systemctl start $SERVICE_NAME
-systemctl enable $TIMER_NAME
-systemctl start $TIMER_NAME
+
 echo "DDNS服务已安装并启动。"
